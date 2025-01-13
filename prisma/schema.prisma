@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int        @id @default(autoincrement())
+  username  String     @default("default_username")
+  email     String     @unique
+  password  String
+  role      Role       @default(STUDENT)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  student   Student?   @relation
+  moderator Moderator? @relation
+}
+
+enum Role {
+  STUDENT
+  MODERATOR
+}
+
+model Student {
+  id            Int            @id @default(autoincrement())
+  nim           Int
+  college       String
+  major         String
+  name          String
+  email         String
+  userId        Int            @unique
+  user          User           @relation(fields: [userId], references: [id])
+  points        Point[]
+  histories     History[]
+  requestPoints RequestPoint[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Moderator {
+  id        Int      @id @default(autoincrement())
+  code      Int      
+  name      String
+  college   String
+  major     String
+  email     String
+  userId    Int      @unique
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model RequestPoint {
+  id         Int       @id @default(autoincrement())
+  studentId  Int       
+  student    Student   @relation(fields: [studentId], references: [id])
+  name       String
+  nim        Int
+  college    String
+  major      String
+  points     Int
+  status     String    @default("pending")
+  histories  History[]
+  activityId Int?
+  activity   Activity? @relation(fields: [activityId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  description String
+}
+
+model Activity {
+  id            Int            @id @default(autoincrement())
+  title         String
+  description   String?
+  date          DateTime
+  requestPoints RequestPoint[]
+  histories     History[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Point {
+  id        Int      @id @default(autoincrement())
+  value     Int
+  studentId Int
+  student   Student  @relation(fields: [studentId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model History {
+  id             Int           @id @default(autoincrement())
+  activityId     Int?
+  studentId      Int?
+  activity       Activity?     @relation(fields: [activityId], references: [id])
+  student        Student?      @relation(fields: [studentId], references: [id])
+  status         String        @default("pending")
+  notes          String?
+  requestPoint   RequestPoint? @relation(fields: [requestPointId], references: [id])
+  requestPointId Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
