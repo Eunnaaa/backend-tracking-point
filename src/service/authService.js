@@ -1,74 +1,82 @@
+const bcrypt = require("bcrypt");
 const prisma = require("../config/prisma");
 const { generateToken } = require("../util/tokenUtils");
 
-const registerUser = async (req, res) => {
-  const { username, email, password } = req.body;
-
-  try {
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
-    }
-
-    const newUser = await prisma.user.create({
-      data: {
-        username: username,
-        email: email,
-        password: password,
-      },
-    });
-
-    res
-      .status(201)
-      .json({ message: "User registered successfully", user: newUser });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error", error });
+const registerUser = async ({ username, email, password }) => {
+  if (!email || !password) {
+    const error = new Error("Email dan password wajib diisi");
+    error.statusCode = 400;
+    throw error;
   }
-};
 
-const loginUser = async (email, password) => {
-  const user = await prisma.user.findUnique({
-    where: { email: email },
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    const error = new Error("Email sudah terdaftar");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const newUser = await prisma.user.create({
+    data: {
+      username: username || "default_username",
+      email,
+      password: hashedPassword,
+    },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 
-  if (!user) throw new Error("User not found");
+  return newUser;
+};
 
-  if (user.password !== password) {
-    throw new Error("Invalid password");
+const loginUser = async ({ email, password }) => {
+  if (!email || !password) {
+    const error = new Error("Email dan password wajib diisi");
+    error.statusCode = 400;
+    throw error;
   }
 
-  return user;
-};
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: {
+      student: true,
+      moderator: true,
+    },
+  });
 
-const register = async (req, res) => {
-  try {
-    await registerUser(req, res);
-  } catch (error) {
-    console.error("Error registering user", error);
-    res.status(500).json({ message: "Error registering user", error });
+  if (!user) {
+    const error = new Error("Email atau password salah");
+    error.statusCode = 401;
+    throw error;
   }
-};
 
-const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await loginUser(email, password);
-
-    const token = generateToken(user);
-
-    res.status(200).json({ message: "Login successful", token });
-  } catch (error) {
-    console.error({ message: "Error logging in", error });
-    res.status(401).json({
-      message: "Invalid email or password",
-      error,
-    });
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) {
+    const error = new Error("Email atau password salah");
+    error.statusCode = 401;
+    throw error;
   }
+
+  const token = generateToken(user);
+
+  // Jangan kembalikan hash password ke client
+  const { password: _, ...userWithoutPassword } = user;
+
+  return {
+    user: userWithoutPassword,
+    token,
+  };
 };
 
-const logout = (req, res) => {
-  res.status(200).json({ mesagge: "Logout Successful" });
+module.exports = {
+  registerUser,
+  loginUser,
 };
-
-module.exports = { register, login, logout };

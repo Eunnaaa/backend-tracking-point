@@ -1,7 +1,8 @@
 const express = require("express");
-const router = express.Router();
 const moderatorController = require("../controller/moderatorController");
 
-router.use("/", moderatorController);
+const router = express.Router();
+
+router.post("/handle-request/:id", moderatorController.handlePointRequest);
 
 module.exports = router;

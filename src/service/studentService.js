@@ -1,122 +1,129 @@
 const prisma = require("../config/prisma");
 
-const getActivity = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const activity = await prisma.activity.findMany({
-      where: { id: Number(id) },
-    });
-
-    res
-      .status(201)
-      .json({ message: "Activity retrieved successfully", activity });
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: "Server error", error });
-  }
+const getAllStudents = async () => {
+  return await prisma.student.findMany({
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          role: true,
+        },
+      },
+      points: true,
+    },
+  });
 };
 
-const getHistory = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const history = await prisma.history.findMany({
-      where: { studentId: parseInt(id) },
-      orderBy: { createdAt: "desc" },
-    });
+const getStudentById = async (id) => {
+  const student = await prisma.student.findUnique({
+    where: { id: Number(id) },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          role: true,
+        },
+      },
+      points: true,
+      requestPoints: true,
+      histories: true,
+    },
+  });
 
-    res.json({ message: "History retrieved successfully", history });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error });
+  if (!student) {
+    const error = new Error("Student not found");
+    error.statusCode = 404;
+    throw error;
   }
+
+  return student;
 };
 
-const getAllStudents = async (req, res) => {
-  try {
-    const students = await prisma.student.findMany();
-
-    if (students.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "No students found in the database" });
-    }
-
-    return res.status(200).json({
-      message: "All students retrieved successfully",
-      data: students,
-    });
-  } catch (error) {
-    console.error("Error retrieving students:", error);
-    res.status(500).json({ message: "Server error", error });
-  }
+const getStudentHistory = async (studentId) => {
+  return await prisma.history.findMany({
+    where: { studentId: Number(studentId) },
+    include: {
+      activity: true,
+      requestPoint: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 };
 
-const getStudent = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const student = await prisma.student.findUnique({
-      where: { id: Number(id) },
-    });
+const getActivity = async (id) => {
+  const activity = await prisma.activity.findUnique({
+    where: { id: Number(id) },
+  });
 
-    if (!student) {
-      return res.status(404).json({ message: "Student not found" });
-    }
-
-    res.json({ student });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error });
+  if (!activity) {
+    const error = new Error("Activity not found");
+    error.statusCode = 404;
+    throw error;
   }
+
+  return activity;
 };
 
-const pointRequest = async (req, res) => {
-  const { userId, pointsRequested, description, nim, name, college, major } =
-    req.body;
-
+const createPointRequest = async ({
+  userId,
+  pointsRequested,
+  description,
+  nim,
+  name,
+  college,
+  major,
+  activityId,
+}) => {
   if (!userId) {
-    return res.status(400).json({ message: "userId tidak boleh kosong" });
+    const error = new Error("userId tidak boleh kosong");
+    error.statusCode = 400;
+    throw error;
   }
 
   if (!pointsRequested) {
-    return res
-      .status(400)
-      .json({ message: "pointsRequested tidak boleh kosong" });
+    const error = new Error("pointsRequested tidak boleh kosong");
+    error.statusCode = 400;
+    throw error;
   }
 
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { student: true },
-    });
+  const user = await prisma.user.findUnique({
+    where: { id: Number(userId) },
+    include: { student: true },
+  });
 
-    if (!user || !user.student) {
-      return res.status(400).json({ message: "User bukan mahasiswa" });
-    }
-
-    const pointRequest = await prisma.requestPoint.create({
-      data: {
-        studentId: user.student.id,
-        points: pointsRequested,
-        nim: nim,
-        name: name,
-        college: college,
-        major: major,
-        description: description,
-        status: "pending",
-      },
-    });
-
-    res
-      .status(201)
-      .json({ message: "Request point berhasil dibuat", data: pointRequest });
-  } catch (err) {
-    console.error("Error requesting point:", err); // Menggunakan 'err' yang sudah didefinisikan
-    res.status(500).json({ message: err.message });
+  if (!user || !user.student) {
+    const error = new Error("User bukan mahasiswa atau profil mahasiswa belum dibuat");
+    error.statusCode = 400;
+    throw error;
   }
+
+  const student = user.student;
+
+  const pointRequest = await prisma.requestPoint.create({
+    data: {
+      studentId: student.id,
+      points: Number(pointsRequested),
+      nim: nim ? Number(nim) : student.nim,
+      name: name || student.name,
+      college: college || student.college,
+      major: major || student.major,
+      description: description || "-",
+      status: "pending",
+      ...(activityId && { activityId: Number(activityId) }),
+    },
+  });
+
+  return pointRequest;
 };
 
 module.exports = {
-  getStudent,
-  getHistory,
-  getActivity,
   getAllStudents,
-  pointRequest,
+  getStudentById,
+  getStudentHistory,
+  getActivity,
+  createPointRequest,
 };

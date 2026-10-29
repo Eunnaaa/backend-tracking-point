@@ -1,132 +1,97 @@
 const prisma = require("../config/prisma");
 
-const getPointRequest = async (req, res) => {
-  const { status } = req.query;
-
-  try {
-    const requests = await prisma.requestPoint.findMany({
-      where: status ? { status } : {},
-      include: { student: true, activity: true },
-    });
-    res.status(200).json({
-      message: "Daftar request point berhasil diambil",
-      data: requests,
-    });
-  } catch (error) {
-    console.error("Error fetching point requests:", error);
-    res.status(500).json({
-      message: "Error fetching point requests",
-      error: error.message,
-    });
+const getPointRequests = async (filters = {}) => {
+  const where = {};
+  if (filters.status) {
+    where.status = filters.status;
   }
+  if (filters.studentId) {
+    where.studentId = Number(filters.studentId);
+  }
+
+  return await prisma.requestPoint.findMany({
+    where,
+    include: {
+      student: true,
+      activity: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 };
 
-const getPointsRequestById = async (req, res) => {
-  const { requsetId } = req.params;
+const getPointRequestById = async (id) => {
+  const request = await prisma.requestPoint.findUnique({
+    where: { id: Number(id) },
+    include: {
+      student: true,
+      activity: true,
+      histories: true,
+    },
+  });
 
-  try {
-    const request = await prisma.requestPoint.findUnique({
-      where: { id: requsetId },
-      include: { student: true, activity: true },
-    });
-
-    if (!request) {
-      return res.status(404).json({
-        message: "Request point tidak ditemukan",
-      });
-    }
-
-    res.status(200).json({
-      message: "Detail request point berhasil diambil",
-    });
-  } catch (error) {
-    console.error("Error fetching point request by id:", error);
-    res.status(500).json({
-      message: "Error fetching point request by id",
-      error: error.message,
-    });
+  if (!request) {
+    const error = new Error("Request point tidak ditemukan");
+    error.statusCode = 404;
+    throw error;
   }
+
+  return request;
 };
 
-const deletePointRequest = async (req, res) => {
-  const { requestId } = req.params;
+const deletePointRequest = async (id) => {
+  const normalizedId = Number(id);
+  const request = await prisma.requestPoint.findUnique({
+    where: { id: normalizedId },
+  });
 
-  try {
-    const request = await prisma.requestPoint.findUnique({
-      where: { id: requestId },
-    });
-
-    if (!request || request.status !== "pending") {
-      return res.status(400).json({
-        message: "Request point tidak ditemukan atau sudah tidak pending",
-      });
-    }
-
-    await prisma.requestPoint.delete({
-      where: { id: requestId },
-    });
-
-    res.status(200).json({
-      message: "Request point berhasil dihapus",
-    });
-  } catch (error) {
-    console.error("Error deleting request:", error);
-    res.status(500).json({
-      message: "Error deleting request",
-    });
+  if (!request) {
+    const error = new Error("Request point tidak ditemukan");
+    error.statusCode = 404;
+    throw error;
   }
+
+  if (request.status !== "pending") {
+    const error = new Error("Hanya request point berstatus 'pending' yang dapat dihapus");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return await prisma.requestPoint.delete({
+    where: { id: normalizedId },
+  });
 };
 
-const getPointsByStudent = async (req, res) => {
-  const { studentId } = req.params;
+const getPointsByStudent = async (studentId) => {
+  const normalizedStudentId = Number(studentId);
 
-  try {
-    const points = await prisma.point.aggregate({
-      _sum: { value: true },
-      where: { studentId: parseInt(studentId) },
-    });
+  const points = await prisma.point.aggregate({
+    _sum: { value: true },
+    where: { studentId: normalizedStudentId },
+  });
 
-    res.status(200).json({
-      message: "Total poin mahasiswa berhasil diambil",
-      totalPoints: points._sum.value || 0,
-    });
-  } catch (error) {
-    console.error("Error fetching total points:", error);
-    res.status(500).json({
-      message: "Terjadi kesalahan saat mengambil total poin",
-      error: error.message,
-    });
-  }
+  return {
+    studentId: normalizedStudentId,
+    totalPoints: points._sum.value || 0,
+  };
 };
 
-// Mengambil riwayat semua poin yang diperoleh oleh seorang mahasiswa
-const getPointHistory = async (req, res) => {
-  const { studentId } = req.params;
+const getPointHistory = async (studentId) => {
+  const normalizedStudentId = Number(studentId);
 
-  try {
-    const history = await prisma.history.findMany({
-      where: { studentId: parseInt(studentId) },
-      include: { activity: true, requestPoint: true },
-      orderBy: { createdAt: "desc" },
-    });
-
-    res.status(200).json({
-      message: "Riwayat poin mahasiswa berhasil diambil",
-      data: history,
-    });
-  } catch (error) {
-    console.error("Error fetching point history:", error);
-    res.status(500).json({
-      message: "Terjadi kesalahan saat mengambil riwayat poin",
-      error: error.message,
-    });
-  }
+  return await prisma.history.findMany({
+    where: { studentId: normalizedStudentId },
+    include: {
+      activity: true,
+      requestPoint: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 };
 
 module.exports = {
-  getPointRequest,
-  getPointsRequestById,
+  getPointRequests,
+  getPointRequestById,
   deletePointRequest,
-  getPointHistory,
   getPointsByStudent,
+  getPointHistory,
 };

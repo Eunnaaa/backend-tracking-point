@@ -1,78 +1,87 @@
 const prisma = require("../config/prisma");
 
-const handlePointRequestByModerator = async (req, res) => {
-  const { moderatorId, action } = req.body;
-  const { id } = req.params;
+const handlePointRequest = async ({ moderatorUserId, requestId, action }) => {
+  if (action !== "approve" && action !== "reject") {
+    const error = new Error("Action tidak valid. Gunakan 'approve' atau 'reject'");
+    error.statusCode = 400;
+    throw error;
+  }
 
-  try {
-    if (action !== "approve" && action !== "reject") {
-      return res
-        .status(400)
-        .json({ message: "Action tidak valid (approve/reject)" });
-    }
+  const normalizedRequestId = Number(requestId);
+  if (isNaN(normalizedRequestId)) {
+    const error = new Error("Invalid request point ID");
+    error.statusCode = 400;
+    throw error;
+  }
 
-    const moderator = await prisma.user.findUnique({
-      where: { id: moderatorId },
-      include: { moderator: true },
-    });
+  // Cek apakah user adalah moderator yang sah
+  const moderator = await prisma.user.findUnique({
+    where: { id: Number(moderatorUserId) },
+    include: { moderator: true },
+  });
 
-    if (!moderator || !moderator.moderator) {
-      return res.status(403).json({ message: "User bukan moderator" });
-    }
+  if (!moderator || (!moderator.moderator && moderator.role !== "MODERATOR")) {
+    const error = new Error("User bukan moderator yang sah");
+    error.statusCode = 403;
+    throw error;
+  }
 
-    if (!id || isNaN(Number(id))) {
-      return res.status(400).json({ message: "Invalid ID parameter" });
-    }
+  const pointRequest = await prisma.requestPoint.findUnique({
+    where: { id: normalizedRequestId },
+  });
 
-    const pointRequest = await prisma.requestPoint.findUnique({
-      where: { id: Number(id) },
-    });
+  if (!pointRequest || pointRequest.status !== "pending") {
+    const error = new Error("Request point tidak ditemukan atau sudah diproses");
+    error.statusCode = 404;
+    throw error;
+  }
 
-    if (!pointRequest || pointRequest.status !== "pending") {
-      return res.status(404).json({
-        message: "Request point tidak ditemukan atau sudah diproses",
-      });
-    }
+  const updatedStatus = action === "approve" ? "approved" : "rejected";
 
-    const updatedStatus = action === "approve" ? "approved" : "rejected";
-    const updatedRequest = await prisma.requestPoint.update({
-      where: { id: pointRequest.id },
+  const updatedRequest = await prisma.$transaction(async (tx) => {
+    const updated = await tx.requestPoint.update({
+      where: { id: normalizedRequestId },
       data: { status: updatedStatus },
     });
 
     if (updatedStatus === "approved") {
-      await prisma.point.create({
+      await tx.point.create({
         data: {
           value: pointRequest.points,
           studentId: pointRequest.studentId,
         },
       });
 
-      await prisma.history.create({
+      await tx.history.create({
         data: {
           status: "completed",
-          student: { connect: { id: pointRequest.studentId } },
-          activity: pointRequest.activityId
-            ? { connect: { id: pointRequest.activityId } }
-            : undefined,
-          requestPoint: { connect: { id: pointRequest.id } },
+          studentId: pointRequest.studentId,
+          activityId: pointRequest.activityId,
+          requestPointId: pointRequest.id,
+          notes: `Disetujui oleh moderator (ID: ${moderator.id})`,
+        },
+      });
+    } else {
+      await tx.history.create({
+        data: {
+          status: "rejected",
+          studentId: pointRequest.studentId,
+          activityId: pointRequest.activityId,
+          requestPointId: pointRequest.id,
+          notes: `Ditolak oleh moderator (ID: ${moderator.id})`,
         },
       });
     }
 
-    res.status(200).json({
-      message: `Request point telah ${
-        updatedStatus === "approved" ? "disetujui" : "ditolak"
-      }`,
-      data: updatedRequest,
-    });
-  } catch (error) {
-    console.error("Error handling point request:", error);
-    res.status(500).json({
-      message: "Terjadi kesalahan saat memproses request",
-      error: error.message,
-    });
-  }
+    return updated;
+  });
+
+  return {
+    status: updatedStatus,
+    data: updatedRequest,
+  };
 };
 
-module.exports = { handlePointRequestByModerator };
+module.exports = {
+  handlePointRequest,
+};

@@ -1,9 +1,26 @@
-const {
-  handlePointRequestByModerator,
-} = require("../service/moderatorService");
-const express = require("express");
-const router = express.Router();
+const moderatorService = require("../service/moderatorService");
 
-router.post("/handle-request/:id", handlePointRequestByModerator);
+const handlePointRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { moderatorId, action } = req.body;
 
-module.exports = router;
+    const result = await moderatorService.handlePointRequest({
+      moderatorUserId: moderatorId || (req.user && req.user.id),
+      requestId: id,
+      action,
+    });
+
+    res.status(200).json({
+      status: "success",
+      message: `Request point telah ${result.status === "approved" ? "disetujui" : "ditolak"}`,
+      data: result.data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  handlePointRequest,
+};

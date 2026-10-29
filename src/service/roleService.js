@@ -1,100 +1,117 @@
 const prisma = require("../config/prisma");
 
-const assignRole = async (req, res) => {
-  const { userId, role, name, college, major, code, email, nim } = req.body;
-
+const assignRole = async ({ userId, role, name, college, major, code, email, nim }) => {
   if (!userId || !role || !name || !college || !major || !email) {
-    return res.status(400).json({
-      message:
-        "Semua data (userId, role, name, college, major, email) harus diberikan",
-    });
+    const error = new Error("Semua data (userId, role, name, college, major, email) harus diberikan");
+    error.statusCode = 400;
+    throw error;
   }
 
+  const normalizedUserId = Number(userId);
+
   if (role === "STUDENT" && !nim) {
-    return res.status(400).json({
-      message: "Data nim harus diberikan untuk role 'STUDENT'",
-    });
+    const error = new Error("Data nim harus diberikan untuk role 'STUDENT'");
+    error.statusCode = 400;
+    throw error;
   }
 
   if (role === "MODERATOR" && !code) {
-    return res.status(400).json({
-      message: "Data code harus diberikan untuk role 'MODERATOR'",
-    });
+    const error = new Error("Data code harus diberikan untuk role 'MODERATOR'");
+    error.statusCode = 400;
+    throw error;
   }
 
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+  const user = await prisma.user.findUnique({
+    where: { id: normalizedUserId },
+  });
+
+  if (!user) {
+    const error = new Error("User tidak ditemukan");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (role === "STUDENT") {
+    const studentExist = await prisma.student.findUnique({
+      where: { userId: normalizedUserId },
     });
 
-    if (!user) {
-      return res.status(404).json({ message: "User tidak ditemukan" });
+    if (studentExist) {
+      const error = new Error("User sudah memiliki peran sebagai mahasiswa");
+      error.statusCode = 400;
+      throw error;
     }
 
-    if (role === "STUDENT") {
-      const studentExist = await prisma.student.findUnique({
-        where: { userId },
-      });
-
-      if (studentExist) {
-        return res
-          .status(400)
-          .json({ message: "User sudah memiliki peran sebagai mahasiswa" });
-      }
-
-      const student = await prisma.student.create({
+    // Gunakan transaction agar pembuatan profile student dan update role user sinkron
+    const result = await prisma.$transaction(async (tx) => {
+      const student = await tx.student.create({
         data: {
-          userId: userId,
-          name: name,
-          nim: nim,
-          college: college,
-          major: major,
-          email: email,
+          userId: normalizedUserId,
+          name,
+          nim: Number(nim),
+          college,
+          major,
+          email,
         },
       });
 
-      return res.status(201).json({
-        message: "Peran mahasiswa berhasil ditambahkan",
-        data: student,
+      await tx.user.update({
+        where: { id: normalizedUserId },
+        data: { role: "STUDENT" },
       });
+
+      return student;
+    });
+
+    return {
+      message: "Peran mahasiswa berhasil ditambahkan",
+      data: result,
+    };
+  }
+
+  if (role === "MODERATOR") {
+    const moderatorExist = await prisma.moderator.findUnique({
+      where: { userId: normalizedUserId },
+    });
+
+    if (moderatorExist) {
+      const error = new Error("User sudah memiliki peran sebagai moderator");
+      error.statusCode = 400;
+      throw error;
     }
 
-    if (role === "MODERATOR") {
-      const moderatorExist = await prisma.moderator.findUnique({
-        where: { userId },
-      });
-
-      if (moderatorExist) {
-        return res
-          .status(400)
-          .json({ message: "User sudah memiliki peran sebagai moderator" });
-      }
-
-      const moderator = await prisma.moderator.create({
+    // Gunakan transaction agar pembuatan profile moderator dan update role user sinkron
+    const result = await prisma.$transaction(async (tx) => {
+      const moderator = await tx.moderator.create({
         data: {
-          userId: userId,
-          name: name,
-          college: college,
-          major: major,
-          code: code,
-          email: email,
+          userId: normalizedUserId,
+          name,
+          college,
+          major,
+          code: Number(code),
+          email,
         },
       });
 
-      return res.status(201).json({
-        message: "Peran moderator berhasil ditambahkan",
-        data: moderator,
+      await tx.user.update({
+        where: { id: normalizedUserId },
+        data: { role: "MODERATOR" },
       });
-    }
 
-    return res.status(400).json({ message: "Role tidak valid" });
-  } catch (error) {
-    console.error("Error assigning role:", error);
-    if (error.code === "P2002") {
-      return res.status(400).json({ message: "User sudah memiliki peran ini" });
-    }
-    res.status(500).json({ message: "Terjadi kesalahan pada server" });
+      return moderator;
+    });
+
+    return {
+      message: "Peran moderator berhasil ditambahkan",
+      data: result,
+    };
   }
+
+  const error = new Error("Role tidak valid. Pilih 'STUDENT' atau 'MODERATOR'");
+  error.statusCode = 400;
+  throw error;
 };
 
-module.exports = { assignRole };
+module.exports = {
+  assignRole,
+};

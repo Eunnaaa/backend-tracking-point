@@ -1,7 +1,10 @@
 const express = require("express");
-const router = express.Router();
 const roleController = require("../controller/roleController");
+const { authenticate } = require("../middleware/authMiddleware");
 
-router.use("/", roleController);
+const router = express.Router();
+
+// Assign role dapat diproteksi atau dipanggil setelah registrasi
+router.post("/choose-role", roleController.assignRole);
 
 module.exports = router;

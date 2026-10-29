@@ -1,17 +1,80 @@
+const bcrypt = require("bcrypt");
 const prisma = require("../config/prisma");
-const dotenv = require("dotenv");
-dotenv.config();
 
-const createUser = async (req, res) => {
+const getAllUsers = async () => {
+  return await prisma.user.findMany({
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      student: true,
+      moderator: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+};
+
+const getUserById = async (id) => {
+  const user = await prisma.user.findUnique({
+    where: { id: Number(id) },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      student: true,
+      moderator: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!user) {
+    const error = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return user;
+};
+
+const createUser = async (data) => {
+  const userData = { ...data };
+  if (userData.password) {
+    userData.password = await bcrypt.hash(userData.password, 10);
+  }
+
   return await prisma.user.create({
-    data,
+    data: userData,
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 };
 
 const updateUser = async (id, data) => {
+  const updateData = { ...data };
+  if (updateData.password) {
+    updateData.password = await bcrypt.hash(updateData.password, 10);
+  }
+
   return await prisma.user.update({
     where: { id: Number(id) },
-    data,
+    data: updateData,
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      updatedAt: true,
+    },
   });
 };
 
@@ -21,21 +84,10 @@ const deleteUser = async (id) => {
   });
 };
 
-const getUser = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: Number(id) },
-    });
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    res.json({ user });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error });
-  }
+module.exports = {
+  getAllUsers,
+  getUserById,
+  createUser,
+  updateUser,
+  deleteUser,
 };
-
-module.exports = { getUser, createUser, updateUser, deleteUser };
